@@ -1,0 +1,1230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NetGuard // Security HUD</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    
+    <!-- D3.js and D3-Sankey for Flow Visualization -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://unpkg.com/d3-sankey@0.12.3/dist/d3-sankey.min.js"></script>
+    
+    <!-- Socket.IO Client -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+    
+    <style>
+        :root {
+            --bg-dark: #070b19;
+            --panel-bg: rgba(13, 22, 47, 0.45);
+            --panel-border: rgba(0, 242, 254, 0.15);
+            --panel-glow: rgba(0, 242, 254, 0.05);
+            
+            --neon-cyan: #00f2fe;
+            --neon-pink: #ff2a5f;
+            --neon-green: #05c46b;
+            --neon-amber: #ff9f1a;
+            
+            --text-main: #e2e8f0;
+            --text-muted: #64748b;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(0, 242, 254, 0.07) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(255, 42, 95, 0.05) 0px, transparent 50%),
+                linear-gradient(rgba(10, 15, 30, 0.95), rgba(5, 7, 15, 0.98));
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.2);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(0, 242, 254, 0.2);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--neon-cyan);
+        }
+
+        /* Header HUD */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.2rem 2rem;
+            border-bottom: 1px solid var(--panel-border);
+            background: rgba(10, 15, 30, 0.6);
+            backdrop-filter: blur(10px);
+            z-index: 10;
+        }
+
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logo-icon {
+            width: 24px;
+            height: 24px;
+            background: linear-gradient(135deg, var(--neon-cyan), var(--neon-pink));
+            border-radius: 6px;
+            box-shadow: 0 0 10px rgba(0, 242, 254, 0.5);
+            animation: pulse 2s infinite alternate;
+        }
+
+        h1 {
+            font-size: 1.4rem;
+            font-weight: 800;
+            letter-spacing: 2px;
+            background: linear-gradient(to right, #ffffff, #a5f3fc);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hud-status {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .mode-selector {
+            display: flex;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            padding: 2px;
+        }
+
+        .mode-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            padding: 6px 14px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .mode-btn.active {
+            background: rgba(0, 242, 254, 0.15);
+            color: var(--neon-cyan);
+            text-shadow: 0 0 8px rgba(0, 242, 254, 0.3);
+            border: 1px solid rgba(0, 242, 254, 0.25);
+        }
+
+        .system-time {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.9rem;
+            color: var(--neon-cyan);
+        }
+
+        /* Layout Grid */
+        main {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Sidebar Tabs */
+        .sidebar {
+            width: 250px;
+            background: rgba(8, 12, 25, 0.4);
+            border-right: 1px solid var(--panel-border);
+            padding: 2rem 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .tab-btn {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            background: rgba(13, 22, 47, 0.2);
+            border: 1px solid transparent;
+            color: var(--text-main);
+            padding: 12px 18px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-family: inherit;
+            font-weight: 600;
+            text-align: left;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .tab-btn:hover {
+            background: rgba(0, 242, 254, 0.05);
+            border-color: rgba(0, 242, 254, 0.1);
+            transform: translateX(3px);
+        }
+
+        .tab-btn.active {
+            background: linear-gradient(135deg, rgba(0, 242, 254, 0.15), rgba(13, 22, 47, 0.4));
+            border-color: var(--panel-border);
+            box-shadow: 0 0 15px var(--panel-glow);
+            color: var(--neon-cyan);
+        }
+
+        /* Content Area */
+        .content-container {
+            flex: 1;
+            padding: 2rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .tab-panel {
+            display: none;
+            height: 100%;
+        }
+
+        .tab-panel.active {
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        /* Glassmorphic Panel */
+        .glass-panel {
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 16px;
+            backdrop-filter: blur(16px);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37), inset 0 0 10px var(--panel-glow);
+            padding: 1.5rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .glass-panel::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent);
+        }
+
+        /* Stats Cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1.5rem;
+        }
+
+        .stat-card {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding: 1.2rem 1.5rem;
+            position: relative;
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text-muted);
+        }
+
+        .stat-value {
+            font-size: 2.2rem;
+            font-weight: 800;
+            font-family: 'Share Tech Mono', monospace;
+            color: #ffffff;
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.1);
+        }
+
+        .stat-card.allowed .stat-value { color: var(--neon-green); text-shadow: 0 0 12px rgba(5, 196, 107, 0.3); }
+        .stat-card.denied .stat-value { color: var(--neon-pink); text-shadow: 0 0 12px rgba(255, 42, 95, 0.3); }
+        .stat-card.threats .stat-value { color: var(--neon-amber); text-shadow: 0 0 12px rgba(255, 159, 26, 0.3); }
+
+        /* Sankey Visuals */
+        .sankey-container {
+            flex: 1;
+            min-height: 450px;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        #sankey-chart {
+            flex: 1;
+            width: 100%;
+            height: 100%;
+        }
+
+        .node rect {
+            cursor: move;
+            fill-opacity: .9;
+            shape-rendering: crispEdges;
+        }
+
+        .node text {
+            pointer-events: none;
+            text-shadow: 0 1px 0 #000;
+            font-size: 0.8rem;
+            fill: #ffffff;
+            font-family: 'Share Tech Mono', monospace;
+        }
+
+        .link {
+            fill: none;
+            stroke: var(--neon-cyan);
+            stroke-opacity: .15;
+            transition: stroke-opacity 0.2s;
+        }
+
+        .link:hover {
+            stroke-opacity: .5;
+        }
+
+        /* Firewall Configurator */
+        .firewall-layout {
+            display: grid;
+            grid-template-columns: 1fr 350px;
+            gap: 1.5rem;
+            height: 100%;
+        }
+
+        .rules-table-container {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        .rules-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .rule-item {
+            display: grid;
+            grid-template-columns: 50px 80px 180px 100px 100px 1fr;
+            align-items: center;
+            padding: 12px 18px;
+            background: rgba(13, 22, 47, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            transition: all 0.3s ease;
+        }
+
+        .rule-item:hover {
+            border-color: rgba(0, 242, 254, 0.3);
+            background: rgba(13, 22, 47, 0.5);
+            transform: scale(1.01);
+        }
+
+        .rule-priority {
+            font-family: 'Share Tech Mono', monospace;
+            color: var(--neon-cyan);
+        }
+
+        .rule-action {
+            font-weight: 800;
+            text-transform: uppercase;
+            font-size: 0.85rem;
+        }
+
+        .rule-action.allow { color: var(--neon-green); }
+        .rule-action.deny { color: var(--neon-pink); }
+
+        .rule-ip {
+            font-family: 'Share Tech Mono', monospace;
+        }
+
+        .rule-port, .rule-proto {
+            color: var(--text-muted);
+            font-family: 'Share Tech Mono', monospace;
+        }
+
+        .rule-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        .icon-btn {
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-main);
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+
+        .icon-btn:hover {
+            background: rgba(255, 42, 95, 0.15);
+            border-color: var(--neon-pink);
+            color: var(--neon-pink);
+        }
+
+        .icon-btn.reorder:hover {
+            background: rgba(0, 242, 254, 0.15);
+            border-color: var(--neon-cyan);
+            color: var(--neon-cyan);
+        }
+
+        /* Firewall Form */
+        .rules-form-container {
+            display: flex;
+            flex-direction: column;
+            gap: 1.2rem;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .form-group label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+        }
+
+        .form-input {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            padding: 10px 14px;
+            color: #ffffff;
+            font-family: inherit;
+            font-size: 0.9rem;
+            transition: border-color 0.3s;
+        }
+
+        .form-input:focus {
+            border-color: var(--neon-cyan);
+            outline: none;
+            box-shadow: 0 0 10px rgba(0, 242, 254, 0.15);
+        }
+
+        .form-select {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            padding: 10px 14px;
+            color: #ffffff;
+            font-family: inherit;
+            font-size: 0.9rem;
+        }
+
+        .form-select option {
+            background: var(--bg-dark);
+            color: #ffffff;
+        }
+
+        .btn-glow {
+            background: linear-gradient(135deg, var(--neon-cyan), #0099ff);
+            border: none;
+            border-radius: 8px;
+            padding: 12px;
+            color: #070b19;
+            font-weight: 800;
+            font-size: 0.9rem;
+            cursor: pointer;
+            box-shadow: 0 0 15px rgba(0, 242, 254, 0.3);
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .btn-glow:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 0 25px rgba(0, 242, 254, 0.6);
+        }
+
+        /* Realtime Packet Console */
+        .console-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            min-height: 450px;
+        }
+
+        .console-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .console-log {
+            flex: 1;
+            background: rgba(0, 0, 0, 0.45);
+            border: 1px solid var(--panel-border);
+            border-radius: 12px;
+            padding: 1rem;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.85rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .console-row {
+            display: grid;
+            grid-template-columns: 140px 100px 90px 1fr;
+            padding: 4px 8px;
+            border-radius: 4px;
+            animation: fadeIn 0.3s ease;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .console-row:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .console-time { color: var(--text-muted); }
+        
+        .console-source {
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        
+        .console-severity {
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .console-row.info .console-severity { color: var(--neon-cyan); }
+        .console-row.warning .console-severity { color: var(--neon-amber); }
+        .console-row.critical .console-severity { color: var(--neon-pink); }
+        
+        .console-row.warning { background: rgba(255, 159, 26, 0.03); border-left: 2px solid var(--neon-amber); }
+        .console-row.critical { background: rgba(255, 42, 95, 0.03); border-left: 2px solid var(--neon-pink); }
+
+        .console-summary {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* Phishing Scanning UI */
+        .phishing-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+
+        .phish-input-section {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .phish-results-section {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .verdict-gauge {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 2rem;
+            position: relative;
+        }
+
+        .gauge-value {
+            font-size: 3rem;
+            font-weight: 800;
+            font-family: 'Share Tech Mono', monospace;
+        }
+
+        .gauge-verdict {
+            text-transform: uppercase;
+            font-weight: bold;
+            font-size: 1.2rem;
+            letter-spacing: 2px;
+        }
+
+        .verdict-phishing { color: var(--neon-pink); text-shadow: 0 0 15px rgba(255, 42, 95, 0.4); }
+        .verdict-suspicious { color: var(--neon-amber); text-shadow: 0 0 15px rgba(255, 159, 26, 0.4); }
+        .verdict-legitimate { color: var(--neon-green); text-shadow: 0 0 15px rgba(5, 196, 107, 0.4); }
+
+        .phish-reasons-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 1rem;
+        }
+
+        .phish-reason-item {
+            padding: 8px 12px;
+            background: rgba(255, 255, 255, 0.02);
+            border-left: 2px solid var(--neon-cyan);
+            border-radius: 0 6px 6px 0;
+            font-size: 0.85rem;
+        }
+
+        /* Modal styling for raw inspection */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(8px);
+        }
+
+        .modal-content {
+            background: #0f1834;
+            border: 1px solid var(--neon-cyan);
+            border-radius: 16px;
+            width: 600px;
+            max-width: 90%;
+            padding: 2rem;
+            box-shadow: 0 0 30px rgba(0, 242, 254, 0.3);
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-body pre {
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 8px;
+            padding: 1rem;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.85rem;
+            color: #38bdf8;
+            overflow-x: auto;
+        }
+
+        /* Animations */
+        @keyframes pulse {
+            0% { transform: scale(1); box-shadow: 0 0 10px rgba(0, 242, 254, 0.4); }
+            100% { transform: scale(1.08); box-shadow: 0 0 20px rgba(0, 242, 254, 0.7); }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo-section">
+            <div class="logo-icon"></div>
+            <h1>NETGUARD // CYBER-HUD</h1>
+        </div>
+        <div class="hud-status">
+            <div class="mode-selector">
+                <button class="mode-btn" onclick="changeMode('synthetic')" id="mode-synthetic">SYNTHETIC</button>
+                <button class="mode-btn" onclick="changeMode('live')" id="mode-live">LIVE CAPTURE</button>
+                <button class="mode-btn" onclick="changeMode('stopped')" id="mode-stopped">OFFLINE</button>
+            </div>
+            <div class="system-time" id="system-clock">00:00:00</div>
+        </div>
+    </header>
+
+    <main>
+        <!-- Sidebar Navigation -->
+        <div class="sidebar">
+            <button class="tab-btn active" onclick="switchTab('analytics')">
+                <span>ANALYTICS FLOW</span>
+            </button>
+            <button class="tab-btn" onclick="switchTab('firewall')">
+                <span>FIREWALL SYSTEM</span>
+            </button>
+            <button class="tab-btn" onclick="switchTab('console')">
+                <span>REALTIME FEED</span>
+            </button>
+            <button class="tab-btn" onclick="switchTab('phishing')">
+                <span>PHISHING PAGE LAB</span>
+            </button>
+        </div>
+
+        <!-- Tab Panels -->
+        <div class="content-container">
+            
+            <!-- Tab 1: Analytics -->
+            <div class="tab-panel active" id="panel-analytics">
+                <!-- Stats Summary Row -->
+                <div class="stats-grid">
+                    <div class="glass-panel stat-card">
+                        <span class="stat-label">Total Packets</span>
+                        <span class="stat-value" id="stat-total-packets">0</span>
+                    </div>
+                    <div class="glass-panel stat-card allowed">
+                        <span class="stat-label">Allowed Flows</span>
+                        <span class="stat-value" id="stat-allowed">0</span>
+                    </div>
+                    <div class="glass-panel stat-card denied">
+                        <span class="stat-label">Blocks / Drops</span>
+                        <span class="stat-value" id="stat-denied">0</span>
+                    </div>
+                    <div class="glass-panel stat-card threats">
+                        <span class="stat-label">Threat Alerts</span>
+                        <span class="stat-value" id="stat-threats">0</span>
+                    </div>
+                </div>
+
+                <!-- Flow Diagram -->
+                <div class="glass-panel sankey-container">
+                    <h3 style="letter-spacing: 1px; color: var(--neon-cyan);">FIREWALL SANKEY DIAGRAM FLOW</h3>
+                    <div id="sankey-chart"></div>
+                </div>
+            </div>
+
+            <!-- Tab 2: Firewall Configurator -->
+            <div class="tab-panel" id="panel-firewall">
+                <div class="firewall-layout">
+                    <!-- Rule Lists -->
+                    <div class="glass-panel">
+                        <h3 style="letter-spacing: 1px; margin-bottom: 1.5rem; color: var(--neon-cyan);">ACTIVE FIREWALL RULESETS</h3>
+                        <div class="rules-table-container">
+                            <div class="rules-list" id="rules-target">
+                                <!-- Dynamically Rendered -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- New Rule Form -->
+                    <div class="glass-panel">
+                        <h3 style="letter-spacing: 1px; margin-bottom: 1.5rem; color: var(--neon-cyan);">INSERT RULE</h3>
+                        <form class="rules-form-container" onsubmit="addRule(event)">
+                            <div class="form-group">
+                                <label>Action</label>
+                                <select class="form-select" id="form-action">
+                                    <option value="allow">ALLOW</option>
+                                    <option value="deny">DENY</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Source CIDR</label>
+                                <input type="text" class="form-input" id="form-src-ip" placeholder="e.g. 192.168.1.0/24 or any" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Destination Port</label>
+                                <input type="text" class="form-input" id="form-dst-port" placeholder="e.g. 80 or any" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Protocol</label>
+                                <select class="form-select" id="form-proto">
+                                    <option value="any">ANY</option>
+                                    <option value="TCP">TCP</option>
+                                    <option value="UDP">UDP</option>
+                                    <option value="ICMP">ICMP</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn-glow">DEPLOY RULE</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab 3: Console Feed -->
+            <div class="tab-panel" id="panel-console">
+                <div class="glass-panel console-panel">
+                    <div class="console-header">
+                        <h3 style="letter-spacing: 1px; color: var(--neon-cyan);">SECURITY SIGNATURE & ML ANOMALY EVENT STREAM</h3>
+                        <button class="icon-btn reorder" onclick="clearConsole()" title="Clear Console Log">✖</button>
+                    </div>
+                    <div class="console-log" id="console-target">
+                        <!-- Socket events appended here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab 4: Phishing Lab -->
+            <div class="tab-panel" id="panel-phishing">
+                <div class="phishing-grid">
+                    <!-- URL input -->
+                    <div class="glass-panel phish-input-section">
+                        <h3 style="letter-spacing: 1px; color: var(--neon-cyan);">PHISHING DOMAIN THREAT EVALUATION</h3>
+                        <div class="form-group">
+                            <label>TARGET URL</label>
+                            <input type="text" class="form-input" id="phish-url" placeholder="e.g., https://paypal-security-update.com">
+                        </div>
+                        <button class="btn-glow" onclick="scanPhishingURL()">INITIATE SCAN</button>
+
+                        <div style="margin-top: 1rem;">
+                            <h4 style="margin-bottom: 0.5rem; font-size: 0.9rem; color: var(--text-muted);">RECENT SCANS</h4>
+                            <div id="phish-history" style="display: flex; flex-direction: column; gap: 8px;">
+                                <!-- Rendered dynamically -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- URL Results -->
+                    <div class="glass-panel phish-results-section" id="phish-result-panel" style="display: none;">
+                        <h3 style="letter-spacing: 1px; color: var(--neon-cyan);">THREAT REPORT ANALYSIS</h3>
+                        
+                        <div class="verdict-gauge">
+                            <div class="gauge-value" id="phish-score">0%</div>
+                            <div class="gauge-verdict" id="phish-verdict">LEGITIMATE</div>
+                        </div>
+
+                        <div>
+                            <h4 style="font-size: 0.9rem; margin-bottom: 0.5rem;">HEURISTIC EVALUATIONS</h4>
+                            <div class="phish-reasons-list" id="phish-reasons-target">
+                                <!-- Scan explanations -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Inspection Modal -->
+    <div class="modal" id="inspect-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 style="color: var(--neon-cyan);">EVENT PAYLOAD DATA</h3>
+                <button class="icon-btn" onclick="closeModal()">✖</button>
+            </div>
+            <div class="modal-body">
+                <pre id="inspect-pre"></pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Set up client clock
+        setInterval(() => {
+            document.getElementById('system-clock').innerText = new Date().toLocaleTimeString();
+        }, 1000);
+
+        // State variables
+        let activeTab = 'analytics';
+        let stats = {
+            total_packets: 0,
+            allowed_packets: 0,
+            denied_packets: 0,
+            threat_alerts: 0
+        };
+
+        // Switch panel tabs
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+            
+            // Find button element
+            const activeBtn = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.onclick.toString().includes(tabId));
+            if (activeBtn) activeBtn.classList.add('active');
+            
+            document.getElementById(`panel-${tabId}`).classList.add('active');
+            activeTab = tabId;
+            
+            if (tabId === 'analytics') {
+                renderSankey();
+            }
+        }
+
+        // Fetch updates from stats API
+        function loadStats() {
+            fetch('/api/dashboard/stats')
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('stat-total-packets').innerText = data.total_packets;
+                    document.getElementById('stat-allowed').innerText = data.allowed_packets;
+                    document.getElementById('stat-denied').innerText = data.denied_packets;
+                    document.getElementById('stat-threats').innerText = data.threat_alerts;
+                    
+                    // Set active mode button UI
+                    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+                    if (document.getElementById(`mode-${data.firewall_mode}`)) {
+                        document.getElementById(`mode-${data.firewall_mode}`).classList.add('active');
+                    }
+
+                    // Populate phishing recent history
+                    const historyTarget = document.getElementById('phish-history');
+                    historyTarget.innerHTML = '';
+                    data.phishing_scans.forEach(scan => {
+                        const row = document.createElement('div');
+                        row.style.cssText = 'display:flex; justify-content:space-between; padding: 8px; background:rgba(0,0,0,0.2); border-radius:6px; font-size:0.85rem; font-family:"Share Tech Mono", monospace; border-left:2px solid ' + (scan.verdict === 'phishing' ? 'var(--neon-pink)' : (scan.verdict === 'suspicious' ? 'var(--neon-amber)' : 'var(--neon-green)'));
+                        row.innerHTML = `
+                            <span>${scan.url}</span>
+                            <span style="font-weight:bold; color:${scan.verdict === 'phishing' ? 'var(--neon-pink)' : (scan.verdict === 'suspicious' ? 'var(--neon-amber)' : 'var(--neon-green)')}">${scan.verdict.toUpperCase()} (${scan.ml_score}%)</span>
+                        `;
+                        historyTarget.appendChild(row);
+                    });
+                });
+        }
+
+        // Change mode (Synthetic / Live Capture / Offline)
+        function changeMode(mode) {
+            fetch('/api/firewall/mode', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode })
+            })
+            .then(r => r.json())
+            .then(data => {
+                loadStats();
+            });
+        }
+
+        // Manage Rules Configuration
+        function loadRules() {
+            fetch('/api/firewall/rules')
+                .then(r => r.json())
+                .then(rules => {
+                    const target = document.getElementById('rules-target');
+                    target.innerHTML = '';
+                    
+                    rules.forEach((rule, index) => {
+                        const el = document.createElement('div');
+                        el.className = 'rule-item';
+                        el.innerHTML = `
+                            <span class="rule-priority">#${rule.priority}</span>
+                            <span class="rule-action ${rule.action}">${rule.action}</span>
+                            <span class="rule-ip">${rule.src_ip}</span>
+                            <span class="rule-port">${rule.dst_port}</span>
+                            <span class="rule-proto">${rule.protocol}</span>
+                            <div class="rule-actions">
+                                ${index > 0 ? `<button class="icon-btn reorder" onclick="moveRule(${rule.id}, 'up')">▲</button>` : ''}
+                                ${index < rules.length - 1 ? `<button class="icon-btn reorder" onclick="moveRule(${rule.id}, 'down')">▼</button>` : ''}
+                                <button class="icon-btn" onclick="deleteRule(${rule.id})">🗑</button>
+                            </div>
+                        `;
+                        target.appendChild(el);
+                    });
+                });
+        }
+
+        function addRule(e) {
+            e.preventDefault();
+            const action = document.getElementById('form-action').value;
+            const src_ip = document.getElementById('form-src-ip').value;
+            const dst_port = document.getElementById('form-dst-port').value;
+            const protocol = document.getElementById('form-proto').value;
+
+            fetch('/api/firewall/rules', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action, src_ip, dst_port, protocol })
+            })
+            .then(r => r.json())
+            .then(rules => {
+                loadRules();
+                // Clear inputs
+                document.getElementById('form-src-ip').value = '';
+                document.getElementById('form-dst-port').value = '';
+            });
+        }
+
+        function deleteRule(id) {
+            fetch(`/api/firewall/rules/${id}`, { method: 'DELETE' })
+                .then(r => r.json())
+                .then(() => {
+                    loadRules();
+                });
+        }
+
+        function moveRule(id, direction) {
+            fetch('/api/firewall/rules')
+                .then(r => r.json())
+                .then(rules => {
+                    const idx = rules.findIndex(r => r.id === id);
+                    if (idx === -1) return;
+                    
+                    if (direction === 'up' && idx > 0) {
+                        const temp = rules[idx];
+                        rules[idx] = rules[idx - 1];
+                        rules[idx - 1] = temp;
+                    } else if (direction === 'down' && idx < rules.length - 1) {
+                        const temp = rules[idx];
+                        rules[idx] = rules[idx + 1];
+                        rules[idx + 1] = temp;
+                    }
+                    
+                    const newOrder = rules.map(r => r.id);
+                    fetch('/api/firewall/rules/reorder', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ order: newOrder })
+                    })
+                    .then(r => r.json())
+                    .then(() => {
+                        loadRules();
+                    });
+                });
+        }
+
+        // Realtime Event Consoling
+        function clearConsole() {
+            document.getElementById('console-target').innerHTML = '';
+        }
+
+        function appendConsoleEvent(event) {
+            const target = document.getElementById('console-target');
+            const row = document.createElement('div');
+            row.className = `console-row ${event.severity}`;
+            row.onclick = () => inspectEvent(event);
+            
+            const t = new Date(event.timestamp).toLocaleTimeString();
+            row.innerHTML = `
+                <span class="console-time">[${t}]</span>
+                <span class="console-source">[${event.source}]</span>
+                <span class="console-severity">[${event.severity.toUpperCase()}]</span>
+                <span class="console-summary">${event.summary}</span>
+            `;
+            
+            target.insertBefore(row, target.firstChild);
+            // Cap entries at 200 logs
+            if (target.children.length > 200) {
+                target.removeChild(target.lastChild);
+            }
+        }
+
+        // Modal inspector
+        function inspectEvent(event) {
+            document.getElementById('inspect-pre').innerText = JSON.stringify(event.raw_data || event, null, 2);
+            document.getElementById('inspect-modal').style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('inspect-modal').style.display = 'none';
+        }
+
+        // Phishing URL Scanner
+        function scanPhishingURL() {
+            const url = document.getElementById('phish-url').value;
+            if (!url) return;
+
+            const btn = document.querySelector('.phish-input-section .btn-glow');
+            const origText = btn.innerText;
+            btn.innerText = 'SCANNING SITE...';
+            btn.disabled = true;
+
+            fetch('/api/phishing/scan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url })
+            })
+            .then(r => r.json())
+            .then(report => {
+                btn.innerText = origText;
+                btn.disabled = false;
+
+                // Render Results
+                document.getElementById('phish-result-panel').style.display = 'flex';
+                document.getElementById('phish-score').innerText = `${report.score}%`;
+                
+                const verdictEl = document.getElementById('phish-verdict');
+                verdictEl.innerText = report.verdict.toUpperCase();
+                verdictEl.className = 'gauge-verdict verdict-' + report.verdict;
+
+                const reasonsTarget = document.getElementById('phish-reasons-target');
+                reasonsTarget.innerHTML = '';
+                report.reasons.forEach(reason => {
+                    const item = document.createElement('div');
+                    item.className = 'phish-reason-item';
+                    item.innerText = reason;
+                    reasonsTarget.appendChild(item);
+                });
+
+                loadStats();
+            })
+            .catch(err => {
+                btn.innerText = origText;
+                btn.disabled = false;
+                alert('Analysis failed: ' + err);
+            });
+        }
+
+        // Render Flow Sankey Diagram
+        function renderSankey() {
+            const chartDiv = document.getElementById('sankey-chart');
+            chartDiv.innerHTML = ''; // Clear previous
+
+            const width = chartDiv.clientWidth || 800;
+            const height = chartDiv.clientHeight || 450;
+
+            fetch('/api/firewall/sankey')
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.nodes || data.nodes.length === 0 || !data.links || data.links.length === 0) {
+                        chartDiv.innerHTML = '<div style="display:flex; justify-content:center; align-items:center; height:100%; color:var(--text-muted); font-family:\'Share Tech Mono\', monospace;">NO ACTIVE TRAFFIC DATA TO PLOT</div>';
+                        return;
+                    }
+
+                    const svg = d3.select("#sankey-chart").append("svg")
+                        .attr("width", width)
+                        .attr("height", height);
+
+                    const sankey = d3.sankey()
+                        .nodeWidth(15)
+                        .nodePadding(20)
+                        .extent([[10, 10], [width - 10, height - 10]]);
+
+                    const {nodes, links} = sankey(data);
+
+                    // Draw links
+                    svg.append("g")
+                        .attr("fill", "none")
+                        .attr("stroke", "var(--neon-cyan)")
+                        .selectAll("path")
+                        .data(links)
+                        .join("path")
+                        .attr("class", "link")
+                        .attr("d", d3.sankeyLinkHorizontal())
+                        .attr("stroke-width", d => Math.max(1, d.width))
+                        .style("stroke", d => {
+                            if (d.target.name === 'DENY') return 'var(--neon-pink)';
+                            if (d.target.name === 'ALLOW') return 'var(--neon-green)';
+                            return 'var(--neon-cyan)';
+                        });
+
+                    // Draw nodes
+                    const node = svg.append("g")
+                        .selectAll("g")
+                        .data(nodes)
+                        .join("g")
+                        .attr("class", "node");
+
+                    node.append("rect")
+                        .attr("x", d => d.x0)
+                        .attr("y", d => d.y0)
+                        .attr("height", d => d.y1 - d.y0)
+                        .attr("width", d => d.x1 - d.x0)
+                        .attr("fill", d => {
+                            if (d.name === 'ALLOW') return 'var(--neon-green)';
+                            if (d.name === 'DENY') return 'var(--neon-pink)';
+                            return '#1e293b';
+                        })
+                        .attr("stroke", d => {
+                            if (d.name === 'ALLOW') return '#00ff7f';
+                            if (d.name === 'DENY') return '#ff003c';
+                            return 'var(--neon-cyan)';
+                        })
+                        .attr("stroke-width", 1)
+                        .append("title")
+                        .text(d => `${d.name}\n${d.value} flows`);
+
+                    // Node text labels
+                    node.append("text")
+                        .attr("x", d => d.x0 < width / 2 ? d.x1 + 6 : d.x0 - 6)
+                        .attr("y", d => (d.y1 + d.y0) / 2)
+                        .attr("dy", "0.35em")
+                        .attr("text-anchor", d => d.x0 < width / 2 ? "start" : "end")
+                        .text(d => d.name);
+                })
+                .catch(() => {
+                    chartDiv.innerHTML = '<div style="display:flex; justify-content:center; align-items:center; height:100%; color:var(--text-muted); font-family:\'Share Tech Mono\', monospace;">WAITING FOR METRIC PIPELINE...</div>';
+                });
+        }
+
+        // Initialize Socket.IO connection
+        const socket = io();
+
+        socket.on('connect', () => {
+            console.log('Successfully connected to NetGuard Event Bus Stream.');
+        });
+
+        socket.on('security_event', (event) => {
+            // Append log row
+            appendConsoleEvent(event);
+            
+            // Dynamic incremental updates to statistics without polling
+            stats.total_packets++;
+            if (event.source === 'firewall') {
+                if (event.raw_data && event.raw_data.action === 'deny') {
+                    stats.denied_packets++;
+                } else {
+                    stats.allowed_packets++;
+                }
+            }
+            if (event.severity === 'warning' || event.severity === 'critical') {
+                stats.threat_alerts++;
+            }
+
+            // Update stats cards in UI
+            document.getElementById('stat-total-packets').innerText = parseInt(document.getElementById('stat-total-packets').innerText) + 1;
+            if (event.source === 'firewall') {
+                if (event.raw_data && event.raw_data.action === 'deny') {
+                    document.getElementById('stat-denied').innerText = parseInt(document.getElementById('stat-denied').innerText) + 1;
+                } else {
+                    document.getElementById('stat-allowed').innerText = parseInt(document.getElementById('stat-allowed').innerText) + 1;
+                }
+            }
+            if (event.severity === 'warning' || event.severity === 'critical') {
+                document.getElementById('stat-threats').innerText = parseInt(document.getElementById('stat-threats').innerText) + 1;
+            }
+
+            // Periodically refresh Sankey if active tab
+            if (activeTab === 'analytics' && Math.random() < 0.1) {
+                renderSankey();
+            }
+        });
+
+        // Initialize dashboard state on load
+        window.addEventListener('load', () => {
+            loadStats();
+            loadRules();
+            renderSankey();
+            
+            // Refresh stats and Sankey chart periodically
+            setInterval(loadStats, 10000);
+            setInterval(() => {
+                if (activeTab === 'analytics') {
+                    renderSankey();
+                }
+            }, 5000);
+        });
+    </script>
+</body>
+</html>
