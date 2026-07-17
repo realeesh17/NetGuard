@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+venv/
+.env
+*.pcap
+data/pcaps/*.pcap
+ml/models/*.pkl
+instance/
+*.db
+.DS_Store
