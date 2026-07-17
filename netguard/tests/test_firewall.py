@@ -134,5 +134,53 @@ class TestFirewall(unittest.TestCase):
         # Verify links connect them
         self.assertEqual(len(sankey["links"]), 2)
 
+    def test_live_packet_handler(self):
+        # Setup rules
+        with get_session() as session:
+            rule = FirewallRule(priority=1, action="allow", src_ip="10.0.0.0/8", dst_port="80", protocol="TCP")
+            session.add(rule)
+
+        # Mock Scapy layers
+        from scapy.layers.inet import IP, TCP
+        
+        class MockIP:
+            src = "10.1.2.3"
+            dst = "192.168.1.1"
+            proto = 6  # TCP
+
+        class MockTCP:
+            dport = 80
+            flags = "S"
+
+        class MockPacket:
+            def __init__(self):
+                self.ip = MockIP()
+                self.tcp = MockTCP()
+
+            def haslayer(self, cls):
+                return cls in (IP, TCP)
+
+            def __getitem__(self, cls):
+                if cls == IP:
+                    return self.ip
+                if cls == TCP:
+                    return self.tcp
+                raise KeyError
+
+            def __len__(self):
+                return 74
+
+        # Feed the mock packet to the handler
+        from netguard.firewall.simulate import handle_live_packet
+        handle_live_packet(MockPacket())
+
+        # Verify decision logged in DB
+        with get_session() as session:
+            decisions = session.query(FirewallDecision).all()
+            self.assertEqual(len(decisions), 1)
+            self.assertEqual(decisions[0].src_ip, "10.1.2.3")
+            self.assertEqual(decisions[0].action_taken, "allow")
+
 if __name__ == "__main__":
     unittest.main()
+

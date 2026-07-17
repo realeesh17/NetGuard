@@ -117,12 +117,74 @@ def stop_simulation():
             _simulation_thread = None
         print("Firewall simulation stopped.")
 
-# --- LIVE MODE EXTENSION POINT ---
-# This callback/loop will be updated in Prompt 4 to consume packets from the sniffer.
+# Helper to parse scapy packets safely
+def extract_packet_info(packet) -> dict:
+    """Extract relevant fields from a Scapy packet into a standard dictionary format."""
+    info = {
+        "src_ip": None,
+        "dst_ip": None,
+        "dst_port": None,
+        "protocol": "OTHER",
+        "length": len(packet),
+        "flags": "",
+        "dns_query": None
+    }
+    
+    # Try importing scapy layers safely
+    try:
+        from scapy.layers.inet import IP, TCP, UDP, ICMP
+        from scapy.layers.dns import DNS, DNSQR
+        
+        if packet.haslayer(IP):
+            ip_layer = packet[IP]
+            info["src_ip"] = ip_layer.src
+            info["dst_ip"] = ip_layer.dst
+            proto_num = ip_layer.proto
+            
+            if proto_num == 6:  # TCP
+                info["protocol"] = "TCP"
+                if packet.haslayer(TCP):
+                    tcp_layer = packet[TCP]
+                    info["dst_port"] = int(tcp_layer.dport)
+                    info["flags"] = str(tcp_layer.flags)
+            elif proto_num == 17:  # UDP
+                info["protocol"] = "UDP"
+                if packet.haslayer(UDP):
+                    udp_layer = packet[UDP]
+                    info["dst_port"] = int(udp_layer.dport)
+                    if packet.haslayer(DNS) and packet.haslayer(DNSQR):
+                        qname = packet[DNSQR].qname
+                        if isinstance(qname, bytes):
+                            info["dns_query"] = qname.decode("utf-8", errors="ignore").strip(".")
+                        else:
+                            info["dns_query"] = str(qname).strip(".")
+            elif proto_num == 1:  # ICMP
+                info["protocol"] = "ICMP"
+    except Exception as e:
+        print(f"Error parsing scapy packet: {e}")
+        
+    return info
+
+# --- LIVE MODE IMPLEMENTATION ---
+from netguard.sniffer.capture import register_packet_handler, unregister_packet_handler, start_capture
+
 def handle_live_packet(scapy_packet):
     """
     Callback handler for live network packets.
     Extracts relevant headers and passes them to evaluate_packet.
     """
-    # TODO: Implement live packet extraction and evaluation in Milestone 4.
-    pass
+    packet_info = extract_packet_info(scapy_packet)
+    if packet_info["src_ip"] and packet_info["dst_ip"]:
+        process_and_log_packet(packet_info)
+
+def start_live_firewall():
+    """Start live firewall mode, subscribing to scapy sniffer packets."""
+    register_packet_handler(handle_live_packet)
+    start_capture()
+    print("Live firewall mode activated.")
+
+def stop_live_firewall():
+    """Stop live firewall mode, unsubscribing from packet stream."""
+    unregister_packet_handler(handle_live_packet)
+    print("Live firewall mode deactivated.")
+
