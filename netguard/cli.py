@@ -7,6 +7,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from netguard.core.db import init_db, get_session
 from netguard.core.models import FirewallRule, FirewallDecision, Event, PhishingScan
+from netguard.core.exporter import export_events_json, export_events_csv, generate_markdown_audit_report
 from netguard.phishing.analyze import analyze_url
 
 def cmd_rules_list(args):
@@ -103,6 +104,19 @@ def cmd_scan(args):
         print(f"  - {reason}")
     print("="*60 + "\n")
 
+def cmd_export(args):
+    """Export security logs or generate audit report."""
+    init_db()
+    fmt = args.format.lower()
+    if fmt == "json":
+        print(export_events_json(limit=args.limit))
+    elif fmt == "csv":
+        print(export_events_csv(limit=args.limit))
+    elif fmt == "markdown":
+        print(generate_markdown_audit_report())
+    else:
+        print("Invalid export format. Choose json, csv, or markdown.")
+
 def main():
     parser = argparse.ArgumentParser(description="NetGuard Cyber Threat CLI Utility")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -127,7 +141,12 @@ def main():
     # Subcommand: scan
     parser_scan = subparsers.add_parser("scan", help="Run a phishing URL evaluation")
     parser_scan.add_argument("--url", required=True, help="Target URL (e.g. http://paypal-security-check.com)")
-    
+
+    # Subcommand: export
+    parser_exp = subparsers.add_parser("export", help="Export security logs or audit report")
+    parser_exp.add_argument("--format", default="markdown", choices=["json", "csv", "markdown"], help="Export format")
+    parser_exp.add_argument("--limit", type=int, default=100, help="Max records to export")
+
     args = parser.parse_args()
     
     # Command router
@@ -141,6 +160,8 @@ def main():
         cmd_stats(args)
     elif args.command == "scan":
         cmd_scan(args)
+    elif args.command == "export":
+        cmd_export(args)
 
 if __name__ == "__main__":
     main()
