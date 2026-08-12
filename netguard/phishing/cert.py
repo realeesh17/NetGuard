@@ -36,8 +36,8 @@ def get_cert_details(url: str, timeout: float = 3.0) -> dict:
     if parsed.scheme and parsed.scheme.lower() != "https":
         return result
         
-    # Connect and grab cert
-    # 1. Try to connect checking verification
+    # Connect and grab cert # 1. Try to connect checking verification
+    
     ctx_verify = ssl.create_default_context()
     ctx_verify.timeout = timeout
     
@@ -78,8 +78,8 @@ def get_cert_details(url: str, timeout: float = 3.0) -> dict:
         if not issuer:
             issuer = str(x509.get_issuer())
             
-        # Check self-signed status
-        # A cert is self-signed if the issuer matches the subject
+        # Check self-signed status # A cert is self-signed if the issuer matches the subject
+        
         subject_name = x509.get_subject().der()
         issuer_name = x509.get_issuer().der()
         self_signed = (subject_name == issuer_name)
