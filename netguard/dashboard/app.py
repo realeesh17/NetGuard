@@ -17,6 +17,7 @@ from netguard.firewall.simulate import (
     stop_live_firewall
 )
 from netguard.firewall.visualize_data import get_sankey_data
+from netguard.firewall.rule_generator import generate_firewall_recommendations, apply_recommendation
 from netguard.phishing.analyze import analyze_url
 
 app = Flask(__name__, template_folder="templates")
@@ -197,6 +198,20 @@ def change_firewall_mode():
 @app.route("/api/firewall/sankey", methods=["GET"])
 def get_sankey():
     return jsonify(get_sankey_data())
+
+@app.route("/api/firewall/recommendations", methods=["GET"])
+def get_rule_recommendations():
+    recs = generate_firewall_recommendations()
+    return jsonify(recs)
+
+@app.route("/api/firewall/recommendations/apply", methods=["POST"])
+def apply_rule_recommendation():
+    data = request.json or {}
+    try:
+        rule_dict = apply_recommendation(data)
+        return jsonify({"message": "Rule recommendation applied", "rule": rule_dict}), 201
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
 @app.route("/api/phishing/scan", methods=["POST"])
 def scan_url():
